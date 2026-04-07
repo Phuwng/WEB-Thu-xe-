@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Đăng nhập</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="login-container">
+        <h2>Đăng nhập hệ thống</h2>
+        <input id="user" placeholder="Tên đăng nhập">
+        <input id="pass" type="password" placeholder="Mật khẩu">
+        <button onclick="login()">Vào hệ thống</button>
+        <p><a href="register.html">Chưa có tài khoản? Đăng ký ngay</a></p>
+        <p style="margin-top: 10px;"><a href="index.html">Quay lại Trang chủ</a></p>
+    </div>
+
+    <script>
+    async function login() {
+        let u = document.getElementById('user').value.trim();
+        let p = document.getElementById('pass').value.trim();
+
+        if(!u || !p) {
+            alert("Vui lòng nhập đủ thông tin!");
+            return;
+        }
+
+        try {
+            const res = await fetch('http://127.0.0.1:5000/login-user', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({username: u, password: p})
+            });
+
+            const data = await res.json();
+
+            if(res.ok) {
+                // Lưu thông tin user và role
+                localStorage.setItem('user_logged', JSON.stringify(data.user));
+                localStorage.setItem('user_role', data.user.role);
+                
+                // Phân quyền điều hướng
+                if (data.user.role === 'admin') {
+                    location.href = 'admin.html';
+                } else {
+                    location.href = 'index.html';
+                }
+            } else {
+                alert(data.message || "Đăng nhập thất bại");
+            }
+        } catch (e) {
+            alert("Lỗi kết nối đến Server!");
+        }
+    }
+    </script>
+</body>
+</html>

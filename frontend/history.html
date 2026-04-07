@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Lịch sử thuê xe</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .history-page { max-width: 900px; margin: 40px auto; padding: 20px; }
+        .history-card { background: white; padding: 20px; margin-bottom: 15px; border-radius: 10px; box-shadow: 0 3px 12px rgba(0,0,0,0.08); }
+        .history-card h3 { margin-bottom: 10px; }
+        .history-card p { margin: 6px 0; }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="logo">CAR-RENTAL</div>
+        <nav><a href="index.html">← Quay lại Trang chủ</a></nav>
+    </header>
+
+    <div class="history-page">
+        <h2>Lịch sử thuê xe</h2>
+        <div id="history-list"></div>
+    </div>
+
+    <div id="return-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:9999; overflow-y:auto;">
+        <div style="background:white; max-width:500px; margin:50px auto; padding:25px; border-radius:8px; position:relative;">
+            <span onclick="closeReturnModal()" style="position:absolute; right:15px; top:15px; cursor:pointer; font-size:24px;">&times;</span>
+            <h3>Trả xe trước thời hạn</h3><hr>
+            <p id="return-vehicle-name"></p>
+            <p><strong>Số ngày dự kiến:</strong> <span id="return-planned-days"></span> ngày</p>
+            <p><strong>Thế hạn trả xe:</strong> <span id="return-deadline"></span></p>
+            <div>
+                <label><strong>Số ngày thực tế sử dụng:</strong></label>
+                <input type="number" id="return-actual-days" min="1" style="width:100%; padding:10px; margin:8px 0;">
+                <small style="color:#666;">Số ngày nhỏ hơn số ngày dự kiến sẽ được hoàn lại tiền.</small>
+            </div>
+            <button onclick="confirmEarlyReturn()" style="width:100%; padding:12px; background:#27ae60; color:white; border:none; border-radius:5px; margin-top:15px; cursor:pointer; font-weight:bold;">Chấp nhận trả xe</button>
+            <button onclick="closeReturnModal()" style="width:100%; padding:12px; background:#95a5a6; color:white; border:none; border-radius:5px; margin-top:8px; cursor:pointer;">Hủy bỏ</button>
+        </div>
+    </div>
+
+    <script>
+        const user = JSON.parse(localStorage.getItem('user_logged'));
+        if(!user || !user.id) {
+            alert('Vui lòng đăng nhập để xem lịch sử.');
+            window.location.href = 'login.html';
+        }
+
+        async function loadHistory() {
+            try {
+                // Load orders (lịch sử thuê)
+                const ordersRes = await fetch(`http://127.0.0.1:5000/orders/${user.id}`);
+                const orders = await ordersRes.json();
+                
+                // Load appointments (lịch sử đặt lịch)
+                const appointmentsRes = await fetch(`http://127.0.0.1:5000/appointments/${user.id}`);
+                const appointments = await appointmentsRes.json();
+                
+                const paidOrders = orders.filter(i => i.payment_status === 'paid');
+                const allItems = [
+                    ...paidOrders.map(item => ({ ...item, type: 'order' })),
+                    ...appointments.map(item => ({ ...item, type: 'appointment' }))
+                ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+                if (!allItems.length) {
+                    document.getElementById('history-list').innerHTML = '<p style="padding:20px; color:#555; text-align:center;">Chưa có lịch sử thuê xe hoặc đặt lịch nào.</p>';
+                    return;
+                }
+
+                document.getElementById('history-list').innerHTML = allItems.map(item => {
+                    const start = new Date(item.created_at);
+                    const end = new Date(start.getTime() + (item.days * 24 * 60 * 60 * 1000));
+                    const remain = Math.ceil((end - new Date()) / (1000 * 60 * 60 * 24));
+                    const isCompleted = item.status === 'completed';
+                    const isAppointment = item.type === 'appointment';
+                    
+                    let statusBg = '#27ae60';
+                    let statusText = 'Đã thuê';
+                    
+                    if (isAppointment) {
+                        statusBg = '#3498db';
+                        statusText = 'Đặt lịch hẹn';
+                    } else if (isCompleted) {
+                        statusBg = '#2ecc71';
+                        statusText = 'Đã trả xe';
+                    } else if (remain > 0) {
+                        statusBg = '#27ae60';
+                        statusText = `Đang thuê - Còn ${remain} ngày`;
+                    } else {
+                        statusBg = '#e74c3c';
+                        statusText = 'Quá hạn';
+                    }
+
+                    return `
+                        <div class="history-card" style="border-left: 4px solid ${statusBg};">
+                            <h3>${item.name} ${isAppointment ? '<span style="color:#3498db; font-size:14px;">(Đặt lịch)</span>' : ''}</h3>
+                            <p><strong>Ngày tạo:</strong> ${start.toLocaleDateString()}</p>
+                            <p><strong>Thời lượng:</strong> ${item.days} ngày</p>
+                            <p><strong>Tổng tiền:</strong> ${Number(item.total_price).toLocaleString()}đ</p>
+                            <p><strong>Trạng thái:</strong> <span style="color:${statusBg}; font-weight:bold;">${statusText}</span></p>
+                            ${!isCompleted && !isAppointment && remain > 0 ? `<button onclick="showReturnModal(${item.id}, '${item.name.replace(/'/g, "\\'")}', ${item.days})" style="background:#e67e22; color:white; border:none; padding:10px 15px; border-radius:4px; cursor:pointer; margin-top:10px;">Trả xe</button>` : ''}
+                        </div>
+                    `;
+                }).join('');
+            } catch (error) {
+                console.error(error);
+                document.getElementById('history-list').innerHTML = '<p style="padding:20px; color:#e74c3c; text-align:center;">Không thể tải lịch sử. Vui lòng thử lại sau.</p>';
+            }
+        }
+
+        loadHistory();
+
+        let currentReturnOrderId = 0;
+
+        function showReturnModal(orderId, vehicleName, plannedDays) {
+            currentReturnOrderId = orderId;
+            document.getElementById('return-vehicle-name').innerText = `Xe: ${vehicleName}`;
+            document.getElementById('return-planned-days').innerText = plannedDays;
+            
+            const deadline = new Date();
+            deadline.setDate(deadline.getDate() + plannedDays);
+            document.getElementById('return-deadline').innerText = deadline.toLocaleDateString();
+            
+            document.getElementById('return-actual-days').value = plannedDays;
+            document.getElementById('return-modal').style.display = 'block';
+        }
+
+        function closeReturnModal() {
+            document.getElementById('return-modal').style.display = 'none';
+        }
+
+        async function confirmEarlyReturn() {
+            const actualDays = parseInt(document.getElementById('return-actual-days').value) || 1;
+            if (actualDays < 1) return alert('Số ngày phải >= 1');
+
+            try {
+                const res = await fetch(`http://127.0.0.1:5000/orders/${currentReturnOrderId}/return`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ return_days: actualDays })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    alert(data.message);
+                    closeReturnModal();
+                    loadHistory();
+                } else {
+                    alert(data.message || 'Không thể trả xe.');
+                }
+            } catch (error) {
+                console.error(error);
+                alert('Lỗi khi trả xe.');
+            }
+        }
+    </script>
+</body>
+</html>

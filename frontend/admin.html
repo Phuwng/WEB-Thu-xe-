@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Quản trị Hệ thống</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body class="admin-body">
+
+    <div class="admin-sidebar">
+        <div class="admin-logo">ADMIN PANEL</div>
+        <ul class="admin-menu">
+            <li><a href="#stats-section"><i class="fas fa-chart-line"></i> Thống kê</a></li>
+            <li><a href="#form-section"><i class="fas fa-edit"></i> Sửa / Xóa Xe</a></li>
+            <li><a href="#pending-section"><i class="fas fa-bell"></i> Chờ duyệt</a></li>
+            <li><a href="#rented-vehicles-section"><i class="fas fa-car"></i> Xe đang thuê</a></li>
+            <li><a href="#appointments-section"><i class="fas fa-calendar-alt"></i> Đặt lịch</a></li>
+            <li><a href="#orders-section"><i class="fas fa-shopping-cart"></i> Đơn hàng</a></li>
+            <li><a href="#list-section"><i class="fas fa-list"></i> Quản lý xe</a></li>
+            <li><a href="#users-section"><i class="fas fa-users"></i> Thành viên</a></li>
+        </ul>
+        <div class="admin-bottom-menu">
+            <a href="index.html"><i class="fas fa-home"></i> Xem Trang chủ</a>
+            <a href="#" onclick="logoutAdmin()" style="color: #e74c3c;"><i class="fas fa-sign-out-alt"></i> Đăng xuất</a>
+        </div>
+    </div>
+
+    <div class="admin-main">
+        <div class="admin-header">
+            <h2>Xin chào, Quản trị viên!</h2>
+            <p style="color: #7f8c8d;">Chào mừng bạn quay trở lại bảng điều khiển.</p>
+        </div>
+
+        <div id="stats-section" class="admin-card stats-card">
+            <h3><i class="fas fa-chart-pie"></i> Tổng quan doanh thu & Thống kê</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 24px; font-weight: bold;" id="stat-revenue">0 VNĐ</div>
+                    <div style="font-size: 12px; margin-top: 5px;">Tổng doanh thu</div>
+                </div>
+                <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 20px; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 24px; font-weight: bold;" id="stat-orders">0</div>
+                    <div style="font-size: 12px; margin-top: 5px;">Tổng đơn hàng</div>
+                </div>
+                <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; padding: 20px; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 24px; font-weight: bold;" id="stat-vehicles">0</div>
+                    <div style="font-size: 12px; margin-top: 5px;">Tổng xe</div>
+                </div>
+                <div style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); color: white; padding: 20px; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 24px; font-weight: bold;" id="stat-users">0</div>
+                    <div style="font-size: 12px; margin-top: 5px;">Tổng user</div>
+                </div>
+            </div>
+            <h4 style="margin-top:20px; color:#2c3e50;">Lịch sử giao dịch gần đây</h4>
+            <div class="table-responsive">
+                <table class="admin-table">
+                    <thead>
+                        <tr><th>Khách hàng</th><th>Xe đã thuê</th><th>Ngày thuê</th><th>Thời lượng</th><th>Tổng tiền</th><th>Hoàn lại</th></tr>
+                    </thead>
+                    <tbody id="renting-table"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="form-section" class="admin-card">
+            <h3><i class="fas fa-edit"></i> Sửa thông tin xe</h3>
+            <p style="color: #7f8c8d; font-size: 13px; margin-bottom: 15px;"><i class="fas fa-info-circle"></i> Chọn xe từ danh sách bên dưới để sửa hoặc xóa</p>
+            <input type="hidden" id="edit-id">
+            <div class="admin-form-grid">
+                <div class="input-group">
+                    <label>Tên xe</label>
+                    <input id="name" placeholder="VD: Mazda 3 2023">
+                </div>
+                <div class="input-group">
+                    <label>Giá thuê (VNĐ/ngày)</label>
+                    <input id="price" type="number" placeholder="VD: 800000">
+                </div>
+                <div class="input-group">
+                    <label>Tên chủ xe</label>
+                    <input id="owner_name" placeholder="Họ tên chủ xe">
+                </div>
+                <div class="input-group">
+                    <label>Số KM đã đi</label>
+                    <input id="odo" type="number" placeholder="VD: 15000">
+                </div>
+                <div class="input-group">
+                    <label>Nhà sản xuất</label>
+                    <input id="brand" placeholder="VD: Mazda">
+                </div>
+                <div class="input-group">
+                    <label>Loại xe</label>
+                    <select id="type">
+                        <option value="car">Ô tô</option>
+                        <option value="motorbike">Mô tô</option>
+                        <option value="electric">Xe điện</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label>Trạng thái</label>
+                    <select id="status">
+                        <option value="available">Sẵn sàng</option>
+                        <option value="unavailable">Đã thuê</option>
+                    </select>
+                </div>
+                <div class="input-group full-width">
+                    <label>Mô tả chi tiết</label>
+                    <textarea id="description" placeholder="Nhập mô tả tình trạng xe, tính năng nổi bật, v.v..." rows="3"></textarea>
+                </div>
+                <div class="input-group full-width">
+                    <label>Lý do thay đổi trạng thái (nếu có khiếu nại)</label>
+                    <textarea id="status-reason" placeholder="VD: Khiếu nại từ chủ xe về hỏng hóc, khiếu nại từ người thuê về chất lượng..." rows="2"></textarea>
+                </div>
+                <div class="input-group full-width upload-group">
+                    <label>Ảnh sản phẩm</label>
+                    <div class="upload-controls">
+                        <input type="text" id="image-url" placeholder="Dán link ảnh từ mạng...">
+                        <span class="or-divider">HOẶC</span>
+                        <input type="file" id="image-file" accept="image/*">
+                    </div>
+                </div>
+            </div>
+            <div class="admin-form-actions">
+                <button onclick="saveVehicle()" id="btn-save" class="btn btn-success"><i class="fas fa-check"></i> Cập nhật thông tin</button>
+                <button onclick="resetForm()" class="btn btn-secondary"><i class="fas fa-times"></i> Hủy / Làm mới</button>
+            </div>
+        </div>
+
+        <div id="pending-section" class="admin-card">
+            <h3><i class="fas fa-bell"></i> Xe đang chờ phê duyệt</h3>
+            <div style="margin-bottom: 15px;">
+                <button onclick="approveAllPending()" class="btn btn-success" style="margin-right:10px;"><i class="fas fa-check-double"></i> Duyệt tất cả</button>
+                <button onclick="rejectAllPending()" class="btn btn-danger"><i class="fas fa-times"></i> Từ chối tất cả</button>
+            </div>
+            <div class="table-responsive">
+                <table class="admin-table">
+                    <thead><tr><th><input type="checkbox" onclick="toggleAllPending(this)"></th><th>Ảnh</th><th>Tên xe</th><th>Chủ xe</th><th>Giá</th><th>Thao tác</th></tr></thead>
+                    <tbody id="pending-list"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="users-section" class="admin-card">
+            <h3><i class="fas fa-users"></i> Danh sách thành viên</h3>
+            <div class="table-responsive">
+                <table class="admin-table">
+                    <thead><tr><th>ID</th><th>Họ tên</th><th>Tên đăng nhập</th><th>CCCD</th><th>Hành động</th></tr></thead>
+                    <tbody id="user-list"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="orders-section" class="admin-card">
+            <h3><i class="fas fa-shopping-cart"></i> Quản lý đơn hàng</h3>
+            <div class="table-responsive">
+                <table class="admin-table">
+                    <thead><tr><th>ID</th><th>Khách hàng</th><th>Xe</th><th>Ngày thuê</th><th>Số ngày</th><th>Tổng tiền</th><th>Thanh toán</th><th>Thao tác</th></tr></thead>
+                    <tbody id="orders-list"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="list-section" class="admin-card">
+            <h3><i class="fas fa-list"></i> Tất cả xe trên hệ thống</h3>
+            <div class="table-responsive">
+                <table class="admin-table">
+                    <thead><tr><th>ID</th><th>Ảnh</th><th>Tên xe</th><th>Giá</th><th>Trạng thái</th><th>Thao tác</th></tr></thead>
+                    <tbody id="admin-list"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="rented-vehicles-section" class="admin-card">
+            <h3><i class="fas fa-car"></i> Xe đang được thuê</h3>
+            <div class="table-responsive">
+                <table class="admin-table">
+                    <thead><tr><th>Xe</th><th>Người thuê</th><th>Ngày thuê</th><th>Số ngày</th><th>Tổng tiền</th><th>Trạng thái</th></tr></thead>
+                    <tbody id="rented-vehicles-list"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="appointments-section" class="admin-card">
+            <h3><i class="fas fa-calendar-alt"></i> Đặt lịch hẹn trước</h3>
+            <div class="table-responsive">
+                <table class="admin-table">
+                    <thead><tr><th>Xe</th><th>Người đặt</th><th>Ngày đặt</th><th>Số ngày</th><th>Tổng tiền</th><th>Thao tác</th></tr></thead>
+                    <tbody id="appointments-list"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        if(localStorage.getItem('user_role') !== 'admin') {
+            alert("Bạn không có quyền truy cập!");
+            window.location.href = 'index.html';
+        }
+
+        function logoutAdmin() { localStorage.clear(); location.href = 'login.html'; }
+
+        let adminVehicles = [];
+
+        async function loadAll() {
+            try {
+                // 1. Tải danh sách xe
+                const res = await fetch('http://127.0.0.1:5000/cars');
+                adminVehicles = await res.json();
+                
+                const pending = adminVehicles.filter(x => x.is_approved === 0);
+                document.getElementById('pending-list').innerHTML = pending.map(x => `
+                    <tr>
+                        <td><input type="checkbox" class="pending-checkbox" value="${x.id}"></td>
+                        <td><img src="${x.image_url}" width="60" height="40" style="object-fit:cover; border-radius:4px;"></td>
+                        <td><strong>${x.name}</strong></td><td>${x.owner_name || 'N/A'}</td><td>${Number(x.price).toLocaleString()}đ</td>
+                        <td>
+                            <button onclick="approveVehicle(${x.id})" class="btn btn-success" style="padding: 5px 10px; font-size:12px;"><i class="fas fa-check"></i> Duyệt</button>
+                            <button onclick="removeVehicle(${x.id})" class="btn btn-danger" style="padding: 5px 10px; font-size:12px;"><i class="fas fa-trash"></i> Từ chối</button>
+                        </td>
+                    </tr>
+                `).join('') || '<tr><td colspan="6" style="text-align:center;">Không có xe nào chờ duyệt</td></tr>';
+
+                const approved = adminVehicles.filter(x => x.is_approved === 1);
+                document.getElementById('admin-list').innerHTML = approved.map(x => `
+                    <tr>
+                        <td>#${x.id}</td>
+                        <td><img src="${x.image_url}" width="60" height="40" style="object-fit:cover; border-radius:4px;"></td>
+                        <td><strong>${x.name}</strong></td><td>${Number(x.price).toLocaleString()}đ</td>
+                        <td>
+                            ${x.status === 'available' ? '<span class="badge badge-success">Sẵn sàng</span>' : '<span class="badge badge-danger">Đã thuê</span>'}
+                            ${x.status_reason ? `<br><small style="color:#e74c3c;">${x.status_reason}</small>` : ''}
+                        </td>
+                        <td>
+                            <button onclick="editVehicle(${x.id})" class="btn btn-primary" style="padding: 5px 10px; font-size:12px;"><i class="fas fa-edit"></i> Sửa</button>
+                            <button onclick="removeVehicle(${x.id})" class="btn btn-danger" style="padding: 5px 10px; font-size:12px;"><i class="fas fa-trash"></i> Xóa</button>
+                        </td>
+                    </tr>
+                `).join('');
+
+                // 2. Tải danh sách người dùng
+                const uRes = await fetch('http://127.0.0.1:5000/users');
+                const users = await uRes.json();
+                document.getElementById('user-list').innerHTML = users.map(u => `
+                    <tr>
+                        <td>#${u.id}</td><td>${u.fullname}</td><td>${u.username}</td><td>${u.cccd || 'Chưa cập nhật'}</td>
+                        <td><button onclick="removeUser(${u.id})" class="btn btn-danger" style="padding: 5px 10px; font-size:12px;"><i class="fas fa-user-times"></i> Xóa</button></td>
+                    </tr>
+                `).join('') || '<tr><td colspan="5" style="text-align:center;">Chưa có thành viên nào</td></tr>';
+
+                // 5. Tải danh sách xe đang được thuê
+                const rentedRes = await fetch('http://127.0.0.1:5000/admin/rented-vehicles');
+                const rentedVehicles = await rentedRes.json();
+                document.getElementById('rented-vehicles-list').innerHTML = rentedVehicles.map(v => `
+                    <tr>
+                        <td><img src="${v.image_url}" width="60" height="40" style="object-fit:cover; border-radius:4px;"> ${v.name}</td>
+                        <td>${v.user_name} (${v.username})</td>
+                        <td>${new Date(v.rent_date).toLocaleDateString()}</td>
+                        <td>${v.days} ngày</td>
+                        <td>${Number(v.total_price).toLocaleString()}đ</td>
+                        <td><span class="badge badge-danger">Đang thuê</span></td>
+                    </tr>
+                `).join('') || '<tr><td colspan="6" style="text-align:center;">Không có xe nào đang được thuê</td></tr>';
+
+                // 6. Tải danh sách đặt lịch hẹn
+                const appRes = await fetch('http://127.0.0.1:5000/admin/appointments');
+                const appointments = await appRes.json();
+                document.getElementById('appointments-list').innerHTML = appointments.map(a => `
+                    <tr>
+                        <td><img src="${a.image_url}" width="60" height="40" style="object-fit:cover; border-radius:4px;"> ${a.vehicle_name}</td>
+                        <td>${a.user_name} (${a.username})</td>
+                        <td>${new Date(a.created_at).toLocaleDateString()}</td>
+                        <td>${a.days} ngày</td>
+                        <td>${Number(a.total_price).toLocaleString()}đ</td>
+                        <td>
+                            <button onclick="convertAppointmentToOrder(${a.id})" class="btn btn-success" style="padding: 5px 10px; font-size:12px;"><i class="fas fa-check"></i> Chuyển thành đơn</button>
+                        </td>
+                    </tr>
+                `).join('') || '<tr><td colspan="6" style="text-align:center;">Không có đặt lịch nào</td></tr>';
+            } catch (error) { console.error("Lỗi khi load dữ liệu", error); }
+        }
+
+        // ĐÃ FIX LỖI EDIT TẠI ĐÂY (Ép kiểu và lọc chuỗi)
+        function editVehicle(id) {
+            const v = adminVehicles.find(x => x.id === parseInt(id));
+            if(!v) return alert("Không tìm thấy dữ liệu xe!");
+
+            // Lưu ID vào form
+            document.getElementById('edit-id').value = v.id;
+            
+            // Load dữ liệu xe vào form
+            document.getElementById('name').value = v.name || '';
+            document.getElementById('price').value = String(v.price).replace(/\D/g, '');
+            document.getElementById('owner_name').value = v.owner_name || '';
+            document.getElementById('odo').value = v.odo || '';
+            document.getElementById('brand').value = v.brand || '';
+            document.getElementById('description').value = v.description || '';
+            document.getElementById('status-reason').value = v.status_reason || '';
+            document.getElementById('image-url').value = v.image_url || '';
+            document.getElementById('type').value = v.type;
+            document.getElementById('status').value = v.status;
+            
+            // Cuộn mượt mà lên khu vực form
+            const formSection = document.getElementById('form-section');
+            formSection.scrollIntoView({ behavior: 'smooth' });
+            
+            // Highlight form để user biết cần sửa ở đây
+            formSection.style.border = '2px solid #f39c12';
+            setTimeout(() => {
+                formSection.style.border = '';
+            }, 3000);
+        }
+
+        async function saveVehicle() {
+            const id = document.getElementById('edit-id').value;
+            
+            // Chỉ có chế độ EDIT (PUT) - không thêm mới
+            if (!id) return alert('Vui lòng chọn xe từ danh sách để sửa.');
+            
+            const name = document.getElementById('name').value.trim();
+            const price = document.getElementById('price').value.trim();
+            let imageUrl = document.getElementById('image-url').value.trim();
+            const fileInput = document.getElementById('image-file');
+
+            // Validation: Khi sửa (PUT), các trường tùy chọn
+            if (name && isNaN(price)) return alert('Giá phải là số hợp lệ.');
+            if (price && price <= 0) return alert('Giá phải là số dương.');
+
+            // Upload file nếu có chọn
+            if (fileInput && fileInput.files.length > 0) {
+                const formData = new FormData();
+                formData.append('file', fileInput.files[0]);
+                try {
+                    console.log('Uploading admin image:', fileInput.files[0].name);
+                    const upRes = await fetch('http://127.0.0.1:5000/upload', { method: 'POST', body: formData });
+                    const upData = await upRes.json();
+                    console.log('Admin upload response:', upRes.status, upData);
+                    if(!upRes.ok) return alert(upData.message || 'Lỗi khi tải ảnh lên!');
+                    if(upData.url) {
+                        imageUrl = upData.url;
+                        console.log('File uploaded successfully:', imageUrl);
+                    }
+                } catch(e) {
+                    console.error('Admin upload error:', e);
+                    return alert("Lỗi khi tải ảnh lên: " + e.message);
+                }
+            }
+
+            const payload = { 
+                name: name || undefined,  // Gửi undefined nếu trống (backend sẽ giữ giá trị cũ)
+                price: price || undefined,
+                status: document.getElementById('status').value, 
+                type: document.getElementById('type').value, 
+                owner_name: document.getElementById('owner_name').value.trim() || undefined,
+                odo: document.getElementById('odo').value.trim() ? parseInt(document.getElementById('odo').value) : undefined,
+                brand: document.getElementById('brand').value.trim() || undefined,
+                description: document.getElementById('description').value.trim() || undefined,
+                status_reason: document.getElementById('status-reason').value.trim() || undefined,
+                image_url: imageUrl || undefined,
+                is_approved: 1 
+            };
+
+            const url = `http://127.0.0.1:5000/cars/${id}`;
+
+            try {
+                console.log('Updating vehicle:', url, payload);
+                const res = await fetch(url, { 
+                    method: 'PUT', 
+                    headers: {'Content-Type': 'application/json'}, 
+                    body: JSON.stringify(payload) 
+                });
+                const data = await res.json();
+                if(!res.ok) {
+                    return alert(data.message || "Lỗi khi lưu dữ liệu!");
+                }
+                // Thành công - reset form và reload
+                console.log('Vehicle updated successfully:', data);
+                alert("✓ Cập nhật thông tin xe thành công!");
+                resetForm(); 
+                loadAll();
+            } catch(e) {
+                console.error('Update error:', e);
+                alert("Lỗi kết nối Server! " + e.message);
+            }
+        }
+
+
+        function resetForm() {
+            // Xóa ID (không còn ở chế độ edit)
+            document.getElementById('edit-id').value = '';
+            
+            // Clear tất cả field
+            document.getElementById('name').value = '';
+            document.getElementById('price').value = '';
+            document.getElementById('owner_name').value = '';
+            document.getElementById('odo').value = '';
+            document.getElementById('brand').value = '';
+            document.getElementById('description').value = '';
+            document.getElementById('status-reason').value = '';
+            document.getElementById('image-url').value = '';
+            document.getElementById('image-file').value = '';
+            
+            // Reset button về trạng thái ban đầu
+            document.getElementById('btn-save').innerHTML = '<i class="fas fa-check"></i> Cập nhật thông tin';
+            
+            // Reset form border nếu có
+            document.getElementById('form-section').style.border = '';
+        }
+
+
+        async function approveVehicle(id) {
+            try {
+                const res = await fetch(`http://127.0.0.1:5000/cars/${id}`, { 
+                    method: 'PUT', 
+                    headers: {'Content-Type': 'application/json'}, 
+                    body: JSON.stringify({ is_approved: 1, status: 'available' }) 
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    alert(data.message || "Duyệt xe thành công!");
+                    loadAll();
+                } else {
+                    alert(data.message || "Không thể duyệt xe.");
+                }
+            } catch (error) {
+                console.error('Approve error:', error);
+                alert("Lỗi khi duyệt xe: " + error.message);
+            }
+        }
+
+        async function removeVehicle(id) {
+            if(confirm("Xóa xe này khỏi hệ thống?")) {
+                try {
+                    const res = await fetch(`http://127.0.0.1:5000/cars/${id}`, { method: 'DELETE' });
+                    const data = await res.json();
+                    if (res.ok) {
+                        alert(data.message || "Xóa xe thành công!");
+                        loadAll();
+                    } else {
+                        alert(data.message || "Không thể xóa xe.");
+                    }
+                } catch (error) {
+                    console.error('Delete error:', error);
+                    alert("Lỗi khi xóa xe: " + error.message);
+                }
+            }
+        }
+
+        async function confirmPayment(id) {
+            if(confirm("Xác nhận đã nhận thanh toán cho đơn hàng này?")) {
+                try {
+                    const res = await fetch(`http://127.0.0.1:5000/orders/${id}/pay`, { method: 'PUT' });
+                    const data = await res.json();
+                    if (res.ok) {
+                        alert(data.message || "Xác nhận thanh toán thành công!");
+                        loadAll();
+                    } else {
+                        alert(data.message || "Không thể xác nhận thanh toán.");
+                    }
+                } catch (error) {
+                    console.error('Confirm payment error:', error);
+                    alert("Lỗi khi xác nhận thanh toán: " + error.message);
+                }
+            }
+        }
+
+        async function loadStats() {
+            try {
+                const res = await fetch('http://127.0.0.1:5000/admin/stats');
+                const data = await res.json();
+                
+                // Cập nhật stats boxes
+                document.getElementById('stat-revenue').innerText = Number(data.total_revenue).toLocaleString() + " VNĐ";
+                document.getElementById('stat-orders').innerText = data.total_orders || 0;
+                document.getElementById('stat-vehicles').innerText = data.total_vehicles || 0;
+                document.getElementById('stat-users').innerText = data.total_users || 0;
+                
+                document.getElementById('renting-table').innerHTML = data.renting_customers.map(c => `
+                    <tr>
+                        <td><strong>${c.fullname}</strong></td>
+                        <td>${c.vehicle_name}</td>
+                        <td>${new Date(c.created_at).toLocaleDateString()}</td>
+                        <td><span class="badge badge-success">${c.days} ngày</span></td>
+                        <td>${Number(c.total_price).toLocaleString()}đ</td>
+                        <td>${c.refund_amount ? Number(c.refund_amount).toLocaleString() + 'đ' : '-'}</td>
+                    </tr>
+                `).join('') || '<tr><td colspan="6" style="text-align:center;">Chưa có giao dịch nào</td></tr>';
+            } catch(e) { console.error('Error loading stats:', e); }
+        }
+
+        async function convertAppointmentToOrder(id) {
+            if(confirm("Chuyển đặt lịch này thành đơn hàng thuê ngay?")) {
+                try {
+                    const res = await fetch(`http://127.0.0.1:5000/appointments/${id}/convert-to-order`, { method: 'POST' });
+                    const data = await res.json();
+                    if (res.ok) {
+                        alert(data.message || "Chuyển thành đơn hàng thành công!");
+                        loadAll();
+                    } else {
+                        alert(data.message || "Không thể chuyển đổi.");
+                    }
+                } catch (error) {
+                    console.error('Convert appointment error:', error);
+                    alert("Lỗi khi chuyển đổi: " + error.message);
+                }
+            }
+        }
+
+        function toggleAllPending(source) {
+            document.querySelectorAll('.pending-checkbox').forEach(cb => cb.checked = source.checked);
+        }
+
+        async function approveAllPending() {
+            const selected = Array.from(document.querySelectorAll('.pending-checkbox:checked')).map(cb => parseInt(cb.value));
+            if(selected.length === 0) return alert('Chọn ít nhất một xe để duyệt.');
+
+            if(!confirm(`Duyệt ${selected.length} xe đã chọn?`)) return;
+
+            let successCount = 0;
+            for(const id of selected) {
+                try {
+                    const res = await fetch(`http://127.0.0.1:5000/cars/${id}`, { 
+                        method: 'PUT', 
+                        headers: {'Content-Type': 'application/json'}, 
+                        body: JSON.stringify({ is_approved: 1, status: 'available' }) 
+                    });
+                    if(res.ok) successCount++;
+                } catch(e) {
+                    console.error('Batch approve error:', e);
+                }
+            }
+            alert(`Đã duyệt thành công ${successCount}/${selected.length} xe.`);
+            loadAll();
+        }
+
+        async function rejectAllPending() {
+            const selected = Array.from(document.querySelectorAll('.pending-checkbox:checked')).map(cb => parseInt(cb.value));
+            if(selected.length === 0) return alert('Chọn ít nhất một xe để từ chối.');
+
+            if(!confirm(`Từ chối ${selected.length} xe đã chọn?`)) return;
+
+            let successCount = 0;
+            for(const id of selected) {
+                try {
+                    const res = await fetch(`http://127.0.0.1:5000/cars/${id}`, { method: 'DELETE' });
+                    if(res.ok) successCount++;
+                } catch(e) {
+                    console.error('Batch reject error:', e);
+                }
+            }
+            alert(`Đã từ chối thành công ${successCount}/${selected.length} xe.`);
+            loadAll();
+        }
+
+        // Load admin data on page open
+        loadAll();
+    </script>
+</body>
+</html>
