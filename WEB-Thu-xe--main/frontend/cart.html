@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Giỏ hàng & Thanh toán</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .cart-item { display: flex; align-items: center; background: white; padding: 15px; margin-bottom: 10px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .info { flex: 1; margin-left: 15px; }
+        .summary { position: sticky; bottom: 0; background: white; padding: 20px; border-top: 2px solid #27ae60; display: flex; justify-content: space-between; align-items: center; }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="logo">CAR-RENTAL</div>
+        <nav><a href="index.html">← Quay về Trang chủ</a></nav>
+    </header>
+
+    <div class="container" style="max-width: 900px; margin: 20px auto; padding: 20px;">
+        <h2>🛒 Giỏ hàng của bạn</h2>
+        <div style="margin-bottom: 10px;">
+            <input type="checkbox" id="all" onclick="checkAll(this)"> <b>Chọn tất cả</b>
+        </div>
+        <div id="cart-content"></div>
+    </div>
+
+    <div class="summary">
+        <div>Tổng thanh toán: <h2 id="total-price" style="color:red; margin:0;">0đ</h2></div>
+        <button onclick="handlePay()" style="background:#27ae60; color:white; border:none; padding:12px 30px; border-radius:5px; cursor:pointer; font-size:16px;">THANH TOÁN NGAY</button>
+    </div>
+
+    <script>
+        const user = JSON.parse(localStorage.getItem('user_logged'));
+
+        if(!user || !user.id) {
+            alert('Vui lòng đăng nhập để xem giỏ hàng.');
+            window.location.href = 'login.html';
+        }
+
+        async function loadCart() {
+            try {
+                // Load orders (đơn hàng thuê)
+                const ordersRes = await fetch(`http://127.0.0.1:5000/orders/${user.id}`);
+                const orders = await ordersRes.json();
+                
+                // Load appointments (đặt lịch hẹn)
+                const appointmentsRes = await fetch(`http://127.0.0.1:5000/appointments/${user.id}`);
+                const appointments = await appointmentsRes.json();
+                
+                const pendingOrders = orders.filter(i => i.status !== 'completed');
+                const allItems = [
+                    ...pendingOrders.map(item => ({ ...item, type: 'order' })),
+                    ...appointments.map(item => ({ ...item, type: 'appointment', payment_status: 'appointment' }))
+                ];
+
+                document.getElementById('cart-content').innerHTML = allItems.map(item => {
+                    const rentDate = new Date(item.created_at);
+                    const returnDate = new Date(rentDate.getTime() + (item.days * 24 * 60 * 60 * 1000));
+                    const now = new Date();
+                    const timeDiff = returnDate - now;
+                    const daysRemaining = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
+                    
+                    let timeStatus = '';
+                    let timeColor = '#27ae60';
+                    
+                    if (item.type === 'order') {
+                        if (daysRemaining > 0) {
+                            timeStatus = `Còn ${daysRemaining} ngày`;
+                        } else if (daysRemaining === 0) {
+                            timeStatus = 'Hết hạn hôm nay';
+                            timeColor = '#f39c12';
+                        } else {
+                            timeStatus = `Quá hạn ${Math.abs(daysRemaining)} ngày`;
+                            timeColor = '#e74c3c';
+                        }
+                    } else {
+                        timeStatus = 'Đặt lịch hẹn trước';
+                        timeColor = '#3498db';
+                    }
+                    
+                    const isPaid = item.payment_status === 'paid';
+                    const isCompleted = item.status === 'completed';
+                    const isAppointment = item.type === 'appointment';
+                    
+                    return `
+                        <div class="cart-item">
+                            <input type="checkbox" name="item" value="${item.id}" data-price="${item.total_price}" data-type="${item.type}" ${isPaid || isCompleted ? 'disabled' : ''} onclick="calc()">
+                            <img src="${item.image_url || 'https://via.placeholder.com/100'}" width="100" height="70" style="object-fit:cover; border-radius:5px; margin-left:10px;">
+                            <div class="info">
+                                <h4>${item.name}</h4>
+                                <div style="display:flex; align-items:center; gap:10px; margin-top:8px;">
+                                    <label>Số ngày:</label>
+                                    <input type="number" value="${item.days}" min="1" ${isPaid || isCompleted ? 'disabled' : ''} onchange="updateItem(${item.id}, this.value, ${item.price_per_day}, '${item.type}')">
+                                    <span>ngày</span>
+                                    ${isAppointment ? '<span style="color:#3498db; font-weight:bold;">(Đặt lịch)</span>' : ''}
+                                </div>
+                                <p style="margin:8px 0 0 0; color:#888;">(Đơn giá: ${Number(item.price_per_day).toLocaleString()}đ/ngày)</p>
+                                ${isPaid && !isCompleted ? `<p style="margin:8px 0 0 0; color:${timeColor};"><strong>Đã thanh toán | ${timeStatus}</strong></p>` : ''}
+                                ${isCompleted ? `<p style="margin:8px 0 0 0; color:#3498db;"><strong>Đã trả xe - Hoàn tất</strong></p>` : ''}
+                                ${isAppointment ? `<p style="margin:8px 0 0 0; color:#3498db;"><strong>${timeStatus}</strong></p>` : ''}
+                            </div>
+                            <div style="font-weight:bold; color:#2ecc71;">${Number(item.total_price).toLocaleString()}đ</div>
+                            ${isPaid && !isCompleted ? `<button onclick="returnVehicle(${item.id})" style="background:#e67e22; color:white; border:none; padding:8px 15px; cursor:pointer; border-radius:4px; margin-left:10px;">Trả xe</button>` : ''}
+                            ${!isPaid && !isAppointment ? `<button onclick="deleteOrder(${item.id})" style="background:#e74c3c; color:white; border:none; padding:8px 15px; cursor:pointer; border-radius:4px; margin-left:10px;">❌ Hủy</button>` : ''}
+                            ${isAppointment ? `<button onclick="convertToOrder(${item.id})" style="background:#27ae60; color:white; border:none; padding:8px 15px; cursor:pointer; border-radius:4px; margin-left:10px;">Chuyển thành đơn</button><button onclick="deleteAppointment(${item.id})" style="background:#e74c3c; color:white; border:none; padding:8px 15px; cursor:pointer; border-radius:4px; margin-left:10px;">❌ Hủy</button>` : ''}
+                        </div>
+                    `;
+                }).join('');
+
+                if(!allItems.length) {
+                    document.getElementById('cart-content').innerHTML = '<p style="padding:20px; text-align:center; color:#555;">Không có đơn hàng hoặc đặt lịch nào.</p>';
+                }
+
+                calc();
+            } catch (error) {
+                console.error(error);
+                document.getElementById('cart-content').innerHTML = '<p style="padding:20px; text-align:center; color:#e74c3c;">Không thể tải giỏ hàng. Vui lòng thử lại sau.</p>';
+            }
+        }
+
+        function calc() {
+            let total = 0;
+            document.querySelectorAll('input[name="item"]').forEach(c => {
+                if (c.checked && !c.disabled) {
+                    total += Number(c.dataset.price) || 0;
+                }
+            });
+            document.getElementById('total-price').innerText = total.toLocaleString() + 'đ';
+        }
+
+        function checkAll(source) {
+            Array.from(document.getElementsByName('item')).forEach(c => {
+                if (!c.disabled) c.checked = source.checked;
+            });
+            calc();
+        }
+
+        async function updateDays(id, days, pricePerDay) {
+            const parsedDays = parseInt(days) || 1;
+            await fetch(`http://127.0.0.1:5000/orders/${id}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ 
+                    days: parsedDays,
+                    total_price: parsedDays * pricePerDay
+                })
+            });
+            loadCart();
+        }
+
+        async function updateItem(id, days, pricePerDay, type) {
+            const parsedDays = parseInt(days) || 1;
+            const endpoint = type === 'appointment' ? 'appointments' : 'orders';
+            await fetch(`http://127.0.0.1:5000/${endpoint}/${id}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ 
+                    days: parsedDays,
+                    total_price: parsedDays * pricePerDay
+                })
+            });
+            loadCart();
+        }
+
+        async function handlePay() {
+            const items = Array.from(document.getElementsByName('item')).filter(c => c.checked && !c.disabled);
+            if(items.length === 0) return alert('Chọn ít nhất một sản phẩm để thanh toán.');
+
+            const orderIds = items.filter(item => item.getAttribute('data-type') === 'order').map(c => parseInt(c.value));
+            const appointmentIds = items.filter(item => item.getAttribute('data-type') === 'appointment').map(c => parseInt(c.value));
+
+            try {
+                // Thanh toán orders
+                if(orderIds.length > 0) {
+                    await fetch('http://127.0.0.1:5000/checkout-multiple', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ order_ids: orderIds })
+                    });
+                }
+
+                // Chuyển appointments thành orders
+                for(const id of appointmentIds) {
+                    await fetch(`http://127.0.0.1:5000/appointments/${id}/convert-to-order`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'}
+                    });
+                }
+
+                alert('Thanh toán thành công!');
+                loadCart();
+            } catch (error) {
+                console.error(error);
+                alert('Không thể thanh toán. Vui lòng thử lại.');
+            }
+        }
+
+        async function deleteOrder(id) {
+            if(!confirm('Bạn chắc chắn muốn hủy lịch hẹn này?')) return;
+            try {
+                await fetch(`http://127.0.0.1:5000/orders/${id}`, { method: 'DELETE' });
+                loadCart();
+            } catch (error) {
+                console.error(error);
+                alert('Không thể hủy đơn hàng.');
+            }
+        }
+
+        async function deleteAppointment(id) {
+            if(!confirm('Bạn chắc chắn muốn hủy đặt lịch hẹn này?')) return;
+            try {
+                await fetch(`http://127.0.0.1:5000/appointments/${id}`, { method: 'DELETE' });
+                loadCart();
+            } catch (error) {
+                console.error(error);
+                alert('Không thể hủy đặt lịch.');
+            }
+        }
+
+        async function convertToOrder(id) {
+            if(!confirm('Chuyển đặt lịch này thành đơn hàng thuê ngay?')) return;
+            try {
+                const res = await fetch(`http://127.0.0.1:5000/appointments/${id}/convert-to-order`, { method: 'POST' });
+                if(res.ok) {
+                    alert('Chuyển thành đơn hàng thành công!');
+                    loadCart();
+                } else {
+                    const data = await res.json();
+                    alert(data.message || 'Không thể chuyển đổi.');
+                }
+            } catch (error) {
+                console.error(error);
+                alert('Lỗi khi chuyển đổi.');
+            }
+        }
+
+        async function returnVehicle(id) {
+            if(!confirm('Bạn chắc chắn muốn trả xe?')) return;
+            try {
+                const res = await fetch(`http://127.0.0.1:5000/orders/${id}/return`, { 
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({})
+                });
+                const data = await res.json();
+                if(res.ok) {
+                    alert(data.message);
+                    loadCart();
+                } else {
+                    alert(data.message || 'Không thể trả xe.');
+                }
+            } catch (error) {
+                console.error(error);
+                alert('Lỗi khi trả xe.');
+            }
+        }
+
+        loadCart();
+    </script>
+</body>
+</html>

@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Đăng ký thành viên</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="login-container">
+        <h2>Tạo tài khoản mới</h2>
+        <input id="reg-name" placeholder="Họ và tên">
+        <input id="reg-cccd" placeholder="Số CCCD/Passport">
+        <input id="reg-address" placeholder="Địa chỉ thường trú">
+        <input id="reg-user" placeholder="Tên đăng nhập">
+        <input id="reg-pass" type="password" placeholder="Mật khẩu">
+        <button onclick="signup()">Đăng ký</button>
+        <p><a href="login.html">Đã có tài khoản? Đăng nhập</a></p>
+        <p style="margin-top: 10px;"><a href="index.html">Quay lại Trang chủ</a></p>
+    </div>
+
+    <script>
+    // Thay thế nội dung cũ bằng đoạn này:
+    async function signup() {
+        const fullname = document.getElementById('reg-name').value.trim();
+        const cccd = document.getElementById('reg-cccd').value.trim();
+        const address = document.getElementById('reg-address').value.trim();
+        const username = document.getElementById('reg-user').value.trim();
+        const password = document.getElementById('reg-pass').value.trim();
+
+        if(!fullname || !username || !password) {
+            alert("Vui lòng điền đầy đủ họ tên, tên đăng nhập và mật khẩu!");
+            return;
+        }
+        if(password.length < 6) {
+            alert("Mật khẩu phải có ít nhất 6 ký tự!");
+            return;
+        }
+        if(cccd && cccd.length < 9) {
+            alert("CCCD phải có ít nhất 9 ký tự!");
+            return;
+        }
+
+        try {
+            const res = await fetch('http://127.0.0.1:5000/register', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                // Truyền cccd và address vào body
+                body: JSON.stringify({fullname, username, password, cccd, address}) 
+            });
+
+            if(res.ok) {
+                alert("Đăng ký thành công! Đang chuyển hướng...");
+                location.href = 'login.html';
+            } else {
+                let data = await res.json();
+                alert(data.message || "Tên đăng nhập đã tồn tại!");
+            }
+        } catch (e) { 
+            alert("Lỗi kết nối Server!"); 
+        }
+    }
+    </script>
+</body>
+</html>

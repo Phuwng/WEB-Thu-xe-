@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Thông tin tài khoản</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <div class="logo">CAR-RENTAL</div>
+        <nav><a href="index.html">← Quay lại Trang chủ</a></nav>
+    </header>
+
+    <div class="profile-page">
+        <h2>Quản lý tài khoản</h2>
+        
+        <div class="tabs">
+            <button class="tab active" onclick="showTab('profile')">Thông tin cá nhân</button>
+            <button class="tab" onclick="showTab('history')">Lịch sử thuê xe</button>
+            <button class="tab" onclick="showTab('appointments')">Đặt lịch hẹn</button>
+            <button class="tab" onclick="showTab('owner-renting')">Xe tôi đang cho thuê</button>
+        </div>
+
+        <div id="profile-tab" class="tab-content active">
+            <div class="profile-form">
+                <div class="field">
+                    <label>Họ tên</label>
+                    <input id="prof-fullname" type="text" placeholder="Họ và tên">
+                </div>
+                <div class="field">
+                    <label>Tên đăng nhập</label>
+                    <input id="prof-username" type="text" readonly>
+                </div>
+                <div class="field">
+                    <label>Số CCCD / Passport</label>
+                    <input id="prof-cccd" type="text" placeholder="Số CCCD hoặc Passport">
+                </div>
+                <div class="field">
+                    <label>Địa chỉ</label>
+                    <input id="prof-address" type="text" placeholder="Địa chỉ thường trú">
+                </div>
+                <div class="field full-width">
+                    <label>Mật khẩu mới</label>
+                    <input id="prof-password" type="password" placeholder="Để trống nếu không đổi">
+                </div>
+            </div>
+            <button class="save" onclick="saveProfile()">Lưu thay đổi</button>
+            <button class="logout" onclick="logout()">Đăng xuất</button>
+            <p id="profile-message" style="margin-top:15px; color:#27ae60; text-align:center;"></p>
+        </div>
+
+        <div id="history-tab" class="tab-content">
+            <h3>Lịch sử thuê xe</h3>
+            <div id="rental-history" class="history-list"></div>
+        </div>
+
+        <div id="appointments-tab" class="tab-content">
+            <h3>Lịch sử đặt lịch hẹn</h3>
+            <div id="appointment-history" class="history-list"></div>
+        </div>
+
+        <div id="owner-renting-tab" class="tab-content">
+            <h3>Xe bạn đang cho thuê</h3>
+            <div id="owner-renting-history" class="history-list"></div>
+        </div>
+    </div>
+
+    <script>
+        const user = JSON.parse(localStorage.getItem('user_logged'));
+        if (!user || !user.id) {
+            alert('Vui lòng đăng nhập để truy cập trang này.');
+            window.location.href = 'login.html';
+        }
+
+        function showTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            
+            // Show selected tab
+            document.getElementById(tabName + '-tab').classList.add('active');
+            event.target.classList.add('active');
+            
+            // Load data for the tab
+            if (tabName === 'history') loadRentalHistory();
+            if (tabName === 'appointments') loadAppointmentHistory();
+            if (tabName === 'owner-renting') loadOwnerRenting();
+        }
+
+        async function loadRentalHistory() {
+            try {
+                const res = await fetch(`http://127.0.0.1:5000/orders/${user.id}`);
+                const data = await res.json();
+                const paidItems = data.filter(i => i.payment_status === 'paid');
+
+                if (!paidItems.length) {
+                    document.getElementById('rental-history').innerHTML = '<p style="text-align:center; padding:20px; color:#555;">Chưa có lịch sử thuê xe nào.</p>';
+                    return;
+                }
+
+                document.getElementById('rental-history').innerHTML = paidItems.map(item => {
+                    const start = new Date(item.created_at);
+                    const end = new Date(start.getTime() + (item.days * 24 * 60 * 60 * 1000));
+                    const remain = Math.ceil((end - new Date()) / (1000 * 60 * 60 * 24));
+                    const isCompleted = item.status === 'completed';
+                    
+                    let statusClass = 'status-rented';
+                    let statusText = 'Đang thuê';
+                    
+                    if (isCompleted) {
+                        statusClass = 'status-completed';
+                        statusText = 'Đã trả xe';
+                    } else if (remain <= 0) {
+                        statusClass = 'status-completed'; // Có thể đổi thành màu khác cho quá hạn
+                        statusText = 'Quá hạn';
+                    }
+
+                    return `
+                        <div class="history-item">
+                            <img src="${item.image_url || 'https://via.placeholder.com/100'}" alt="${item.name}">
+                            <div class="history-info">
+                                <h4>${item.name}</h4>
+                                <p>Ngày thuê: ${start.toLocaleDateString()} - Thời lượng: ${item.days} ngày</p>
+                                <p>Tổng tiền: ${Number(item.total_price).toLocaleString()}đ</p>
+                                <span class="history-status ${statusClass}">${statusText}</span>
+                                ${!isCompleted ? `<button onclick="returnRental(${item.id}, ${item.days})" style="margin-left:10px; background:#e67e22; color:#fff; border:none; padding:6px 10px; border-radius:4px; cursor:pointer;">Trả xe</button>` : ''}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            } catch (error) {
+                console.error(error);
+                document.getElementById('rental-history').innerHTML = '<p style="text-align:center; color:#e74c3c;">Không thể tải lịch sử thuê xe.</p>';
+            }
+        }
+
+        async function loadOwnerRenting() {
+            try {
+                const res = await fetch(`http://127.0.0.1:5000/owners/${user.id}/renting`);
+                const data = await res.json();
+
+                if (!res.ok) {
+                    throw new Error(data.message || 'Không thể tải danh sách xe đang cho thuê.');
+                }
+
+                if (!data.length) {
+                    document.getElementById('owner-renting-history').innerHTML = '<p style="text-align:center; padding:20px; color:#555;">Hiện chưa có xe nào của bạn đang được thuê.</p>';
+                    return;
+                }
+
+                document.getElementById('owner-renting-history').innerHTML = data.map(item => `
+                    <div class="history-item">
+                        <img src="${item.image_url || 'https://via.placeholder.com/100'}" alt="${item.name}">
+                        <div class="history-info">
+                            <h4>${item.name}</h4>
+                            <p>Người thuê: ${item.renter_name || item.renter_username || 'N/A'}</p>
+                            <p>Ngày thuê: ${new Date(item.rent_date).toLocaleDateString()} - Thời lượng: ${item.days} ngày</p>
+                            <p>Tổng tiền: ${Number(item.total_price).toLocaleString()}đ</p>
+                            <span class="history-status status-rented">Đang cho thuê</span>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error(error);
+                document.getElementById('owner-renting-history').innerHTML = '<p style="text-align:center; color:#e74c3c;">Không thể tải danh sách xe đang cho thuê.</p>';
+            }
+        }
+
+        async function returnRental(orderId, plannedDays) {
+            const daysInput = prompt('Nhập số ngày đã sử dụng thực tế (>=1):', String(plannedDays));
+            if (daysInput === null) return;
+
+            const actualDays = parseInt(daysInput, 10);
+            if (isNaN(actualDays) || actualDays < 1) {
+                alert('Số ngày không hợp lệ.');
+                return;
+            }
+
+            try {
+                const res = await fetch(`http://127.0.0.1:5000/orders/${orderId}/return`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ return_days: actualDays })
+                });
+                const data = await res.json();
+                if (!res.ok) return alert(data.message || 'Không thể trả xe.');
+                alert(data.message || 'Trả xe thành công.');
+                loadRentalHistory();
+                loadOwnerRenting();
+            } catch (error) {
+                console.error(error);
+                alert('Lỗi khi trả xe.');
+            }
+        }
+
+        async function loadAppointmentHistory() {
+            try {
+                const res = await fetch(`http://127.0.0.1:5000/appointments/${user.id}`);
+                const data = await res.json();
+
+                if (!data.length) {
+                    document.getElementById('appointment-history').innerHTML = '<p style="text-align:center; padding:20px; color:#555;">Chưa có lịch sử đặt lịch hẹn nào.</p>';
+                    return;
+                }
+
+                document.getElementById('appointment-history').innerHTML = data.map(item => {
+                    const created = new Date(item.created_at);
+                    
+                    return `
+                        <div class="history-item">
+                            <img src="${item.image_url || 'https://via.placeholder.com/100'}" alt="${item.name}">
+                            <div class="history-info">
+                                <h4>${item.name}</h4>
+                                <p>Ngày đặt: ${created.toLocaleDateString()} - Thời lượng: ${item.days} ngày</p>
+                                <p>Tổng tiền: ${Number(item.total_price).toLocaleString()}đ</p>
+                                <span class="history-status status-appointment">Đặt lịch hẹn</span>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            } catch (error) {
+                console.error(error);
+                document.getElementById('appointment-history').innerHTML = '<p style="text-align:center; color:#e74c3c;">Không thể tải lịch sử đặt lịch.</p>';
+            }
+        }
+
+        async function loadProfile() {
+            try {
+                const res = await fetch(`http://127.0.0.1:5000/users/${user.id}`);
+                if (!res.ok) {
+                    alert('Không thể tải thông tin người dùng.');
+                    return;
+                }
+                const data = await res.json();
+                document.getElementById('prof-fullname').value = data.fullname || '';
+                document.getElementById('prof-username').value = data.username || '';
+                document.getElementById('prof-cccd').value = data.cccd || '';
+                document.getElementById('prof-address').value = data.address || '';
+            } catch (error) {
+                console.error(error);
+                alert('Lỗi khi tải thông tin tài khoản.');
+            }
+        }
+
+        async function saveProfile() {
+            const fullname = document.getElementById('prof-fullname').value.trim();
+            const cccd = document.getElementById('prof-cccd').value.trim();
+            const address = document.getElementById('prof-address').value.trim();
+            const password = document.getElementById('prof-password').value;
+            if (!fullname) return alert('Vui lòng điền họ tên.');
+
+            const payload = { fullname, cccd, address };
+            if (password) payload.password = password;
+
+            try {
+                const res = await fetch(`http://127.0.0.1:5000/users/${user.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    return alert(data.message || 'Không thể cập nhật thông tin.');
+                }
+                document.getElementById('profile-message').innerText = data.message || 'Cập nhật thành công.';
+                const updatedUser = { ...user, fullname, cccd, address };
+                localStorage.setItem('user_logged', JSON.stringify(updatedUser));
+                document.getElementById('prof-password').value = '';
+            } catch (error) {
+                console.error(error);
+                alert('Lỗi kết nối khi cập nhật thông tin.');
+            }
+        }
+
+        function logout() {
+            localStorage.clear();
+            window.location.href = 'login.html';
+        }
+
+        loadProfile();
+    </script>
+</body>
+</html>
