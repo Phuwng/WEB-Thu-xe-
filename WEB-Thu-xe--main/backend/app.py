@@ -74,6 +74,49 @@ def normalize_role(role):
          return 'customer'
      return role
 
+def normalize_cccd(cccd):
+    """Chuẩn hóa CCCD để so sánh nhất quán giữa đăng ký và cập nhật."""
+    if cccd is None:
+        return ''
+    return re.sub(r'\s+', '', sanitize_text(cccd)).strip()
+
+def validate_cccd_account_quota(conn, cccd, role, exclude_user_id=None):
+    """
+    Mỗi CCCD chỉ được có tối đa 2 tài khoản không phải admin:
+    - 1 customer
+    - 1 owner
+    """
+    role = normalize_role(role)
+    normalized_cccd = normalize_cccd(cccd)
+
+    if role == 'admin':
+        return True, ''
+
+    if not normalized_cccd:
+        return False, 'CCCD là bắt buộc đối với tài khoản customer hoặc owner.'
+
+    params = [normalized_cccd]
+    query = "SELECT id, role FROM users WHERE REPLACE(REPLACE(REPLACE(COALESCE(cccd, ''), ' ', ''), '\t', ''), '\n', '') = ? AND LOWER(COALESCE(role, 'customer')) != 'admin'"
+    if exclude_user_id is not None:
+        query += ' AND id != ?'
+        params.append(exclude_user_id)
+
+    rows = conn.execute(query, params).fetchall()
+    total_accounts = 0
+    roles = set()
+
+    for row in rows:
+        total_accounts += 1
+        roles.add(normalize_role(row['role']))
+
+    if role in roles:
+        return False, 'CCCD này đã có tài khoản cùng loại rồi.'
+
+    if total_accounts >= 2:
+        return False, 'CCCD này đã đủ 2 tài khoản (customer và owner).'
+
+    return True, ''
+
 def calculate_rental_dates(days):
     """Tính toán ngày bắt đầu và kết thúc cho đơn thuê"""
     start_date = datetime.now()
@@ -207,6 +250,56 @@ def init_db():
     ensure_column('orders', 'end_date', 'end_date DATETIME')
 
     ensure_column('appointments', 'total_price', 'total_price INTEGER')
+
+    # Chuẩn hóa dữ liệu cũ để rule CCCD áp dụng nhất quán
+    conn.execute("UPDATE users SET role='customer' WHERE LOWER(COALESCE(role, '')) = 'user'")
+    conn.execute("UPDATE users SET cccd = REPLACE(REPLACE(REPLACE(COALESCE(cccd, ''), ' ', ''), '\t', ''), '\n', '') WHERE cccd IS NOT NULL")
+
+    # Trigger dự phòng để chặn vượt quota CCCD nếu có thao tác ghi trực tiếp vào DB
+    conn.execute('''CREATE TRIGGER IF NOT EXISTS trg_users_cccd_limit_insert
+    BEFORE INSERT ON users
+    WHEN LOWER(COALESCE(NEW.role, 'customer')) != 'admin'
+    BEGIN
+        SELECT CASE
+            WHEN REPLACE(REPLACE(REPLACE(COALESCE(NEW.cccd, ''), ' ', ''), '\t', ''), '\n', '') = ''
+                THEN RAISE(ABORT, 'CCCD là bắt buộc đối với tài khoản customer hoặc owner.')
+            WHEN (
+                SELECT COUNT(*) FROM users
+                WHERE REPLACE(REPLACE(REPLACE(COALESCE(cccd, ''), ' ', ''), '\t', ''), '\n', '') = REPLACE(REPLACE(REPLACE(COALESCE(NEW.cccd, ''), ' ', ''), '\t', ''), '\n', '')
+                  AND LOWER(COALESCE(role, 'customer')) != 'admin'
+            ) >= 2
+                THEN RAISE(ABORT, 'CCCD này đã đủ 2 tài khoản (customer và owner).')
+            WHEN EXISTS (
+                SELECT 1 FROM users
+                WHERE REPLACE(REPLACE(REPLACE(COALESCE(cccd, ''), ' ', ''), '\t', ''), '\n', '') = REPLACE(REPLACE(REPLACE(COALESCE(NEW.cccd, ''), ' ', ''), '\t', ''), '\n', '')
+                  AND LOWER(COALESCE(role, 'customer')) != 'admin'
+                  AND CASE WHEN LOWER(COALESCE(role, 'customer')) = 'user' THEN 'customer' ELSE LOWER(COALESCE(role, 'customer')) END = CASE WHEN LOWER(COALESCE(NEW.role, 'customer')) = 'user' THEN 'customer' ELSE LOWER(COALESCE(NEW.role, 'customer')) END
+            ) THEN RAISE(ABORT, 'CCCD này đã có tài khoản cùng loại rồi.')
+        END;
+    END''')
+    conn.execute('''CREATE TRIGGER IF NOT EXISTS trg_users_cccd_limit_update
+    BEFORE UPDATE OF cccd, role ON users
+    WHEN LOWER(COALESCE(NEW.role, 'customer')) != 'admin'
+    BEGIN
+        SELECT CASE
+            WHEN REPLACE(REPLACE(REPLACE(COALESCE(NEW.cccd, ''), ' ', ''), '\t', ''), '\n', '') = ''
+                THEN RAISE(ABORT, 'CCCD là bắt buộc đối với tài khoản customer hoặc owner.')
+            WHEN (
+                SELECT COUNT(*) FROM users
+                WHERE REPLACE(REPLACE(REPLACE(COALESCE(cccd, ''), ' ', ''), '\t', ''), '\n', '') = REPLACE(REPLACE(REPLACE(COALESCE(NEW.cccd, ''), ' ', ''), '\t', ''), '\n', '')
+                  AND LOWER(COALESCE(role, 'customer')) != 'admin'
+                  AND id != NEW.id
+            ) >= 2
+                THEN RAISE(ABORT, 'CCCD này đã đủ 2 tài khoản (customer và owner).')
+            WHEN EXISTS (
+                SELECT 1 FROM users
+                WHERE REPLACE(REPLACE(REPLACE(COALESCE(cccd, ''), ' ', ''), '\t', ''), '\n', '') = REPLACE(REPLACE(REPLACE(COALESCE(NEW.cccd, ''), ' ', ''), '\t', ''), '\n', '')
+                  AND LOWER(COALESCE(role, 'customer')) != 'admin'
+                  AND id != NEW.id
+                  AND CASE WHEN LOWER(COALESCE(role, 'customer')) = 'user' THEN 'customer' ELSE LOWER(COALESCE(role, 'customer')) END = CASE WHEN LOWER(COALESCE(NEW.role, 'customer')) = 'user' THEN 'customer' ELSE LOWER(COALESCE(NEW.role, 'customer')) END
+            ) THEN RAISE(ABORT, 'CCCD này đã có tài khoản cùng loại rồi.')
+        END;
+    END''')
 
     conn.commit()
 
@@ -358,19 +451,16 @@ def update_car(id):
         if is_approved is None:
             is_approved = old_data['is_approved']
         else:
-            is_approved = int(is_approved)
-        
+            is_approved = parse_int(is_approved, old_data['is_approved'])
+
         owner_name = sanitize_text(data.get('owner_name') or old_data['owner_name'] or '')
 
         odo = data.get('odo')
         if odo is None or odo == '':
             odo = old_data['odo'] or 0
         else:
-            try:
-                odo = int(odo)
-            except:
-                odo = old_data['odo'] or 0
-        
+            odo = parse_int(odo, old_data['odo'] or 0)
+
         brand = data.get('brand')
         if brand is None or brand == '':
             brand = old_data['brand'] or ''
@@ -546,14 +636,23 @@ def register():
         username = sanitize_text(data.get('username'))
         password = sanitize_text(data.get('password'))
         role = normalize_role(data.get('role', 'customer'))
+        cccd = normalize_cccd(data.get('cccd'))
+        address = sanitize_text(data.get('address'))
         if not fullname or not username or not password:
             return jsonify({"message": "Vui lòng điền đầy đủ họ tên, tên đăng nhập và mật khẩu."}), 400
+
+        if role in {'customer', 'owner'} and not cccd:
+            return jsonify({"message": "CCCD là bắt buộc đối với tài khoản customer hoặc owner."}), 400
 
         hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
         conn = get_db_connection()
         try:
+            ok, message = validate_cccd_account_quota(conn, cccd, role)
+            if not ok:
+                return jsonify({"message": message}), 400
+
             conn.execute("INSERT INTO users (fullname, username, password, role, cccd, address) VALUES (?, ?, ?, ?, ?, ?)",
-                         (fullname, username, hashed_password, role, sanitize_text(data.get('cccd')), sanitize_text(data.get('address'))))
+                         (fullname, username, hashed_password, role, cccd, address))
             conn.commit()
             logger.info(f"User {username} registered successfully.")
             return jsonify({"message": "Success"}), 201
@@ -619,10 +718,21 @@ def update_user(id):
         conn.close()
         return jsonify({"message": "Người dùng không tồn tại."}), 404
 
-    fullname = data.get('fullname', user['fullname']).strip()
-    cccd = data.get('cccd', user['cccd'] or '').strip()
-    address = data.get('address', user['address'] or '').strip()
-    password = data.get('password', '').strip()
+    fullname = sanitize_text(data.get('fullname', user['fullname']))
+    cccd = normalize_cccd(data.get('cccd', user['cccd'] or ''))
+    address = sanitize_text(data.get('address', user['address'] or ''))
+    password = sanitize_text(data.get('password', ''))
+
+    current_role = normalize_role(user['role'])
+    if current_role in {'customer', 'owner'} and not cccd:
+        conn.close()
+        return jsonify({"message": "CCCD là bắt buộc đối với tài khoản customer hoặc owner."}), 400
+
+    ok, message = validate_cccd_account_quota(conn, cccd, current_role, exclude_user_id=id)
+    if not ok:
+        conn.close()
+        return jsonify({"message": message}), 400
+
     if password:
         password = generate_password_hash(password, method='pbkdf2:sha256')
     else:
@@ -648,7 +758,7 @@ def create_appointment():
     data = request.json or {}
     user_id = data.get('user_id')
     vehicle_id = data.get('vehicle_id')
-    days = max(1, int(data.get('days', 1)))
+    days = max(1, parse_int(data.get('days', 1), 1))
     total_price = int(data.get('total_price', 0))
 
     if not user_id or not vehicle_id:
@@ -697,7 +807,7 @@ def get_appointments(user_id):
 @app.route('/appointments/<int:id>', methods=['PUT'])
 def update_appointment(id):
     data = request.json or {}
-    days = max(1, int(data.get('days', 1)))
+    days = max(1, parse_int(data.get('days', 1), 1))
     total_price = int(data.get('total_price', 0))
 
     conn = get_db_connection()
@@ -752,7 +862,7 @@ def book_car():
     data = request.json or {}
     user_id = data.get('user_id')
     vehicle_id = data.get('vehicle_id')
-    days = max(1, int(data.get('days', 1)))
+    days = max(1, parse_int(data.get('days', 1), 1))
     total_price = int(data.get('total_price', 0))
 
     if not user_id or not vehicle_id:
@@ -924,7 +1034,7 @@ def return_vehicle(id):
         
         # Tính toán tiền hoàn lại nếu trả trước thời hạn
         if return_days is not None:
-            return_days = max(1, int(return_days))
+            return_days = max(1, parse_int(return_days, 1))
             if return_days < order['days']:
                 # Người dùng trả trước thời hạn → hoàn lại tiền được dùng thêm
                 days_saved = order['days'] - return_days
