@@ -46,10 +46,14 @@ function initSearch() {
     const brand = document.getElementById('search-brand');
     const type = document.getElementById('search-type');
     const status = document.getElementById('search-status');
+    const minPrice = document.getElementById('search-min-price');
+    const maxPrice = document.getElementById('search-max-price');
     if (input) input.addEventListener('input', applySearch);
     if (brand) brand.addEventListener('input', applySearch);
     if (type) type.addEventListener('change', applySearch);
     if (status) status.addEventListener('change', applySearch);
+    if (minPrice) minPrice.addEventListener('input', applySearch);
+    if (maxPrice) maxPrice.addEventListener('input', applySearch);
 }
 
 function getSearchFilters() {
@@ -57,17 +61,21 @@ function getSearchFilters() {
     const brand = document.getElementById('search-brand')?.value.trim().toLowerCase() || '';
     const type = document.getElementById('search-type')?.value || 'all';
     const status = document.getElementById('search-status')?.value || 'all';
-    return { query, brand, type, status };
+    const minPrice = document.getElementById('search-min-price')?.value.trim() || '';
+    const maxPrice = document.getElementById('search-max-price')?.value.trim() || '';
+    return { query, brand, type, status, minPrice, maxPrice };
 }
 
 async function applySearch() {
     try {
-        const { query, brand, type, status } = getSearchFilters();
+        const { query, brand, type, status, minPrice, maxPrice } = getSearchFilters();
         let params = [];
         if (query) params.push(`search=${encodeURIComponent(query)}`);
         if (brand) params.push(`brand=${encodeURIComponent(brand)}`);
         if (type && type !== 'all') params.push(`type=${encodeURIComponent(type)}`);
         if (status && status !== 'all') params.push(`status=${encodeURIComponent(status)}`);
+        if (minPrice) params.push(`min_price=${encodeURIComponent(minPrice)}`);
+        if (maxPrice) params.push(`max_price=${encodeURIComponent(maxPrice)}`);
 
         const queryString = params.length ? `?${params.join('&')}` : '';
         const res = await fetch(`http://127.0.0.1:5000/cars${queryString}`);
@@ -84,10 +92,14 @@ async function resetSearch() {
     const brand = document.getElementById('search-brand');
     const type = document.getElementById('search-type');
     const status = document.getElementById('search-status');
+    const minPrice = document.getElementById('search-min-price');
+    const maxPrice = document.getElementById('search-max-price');
     if (input) input.value = '';
     if (brand) brand.value = '';
     if (type) type.value = 'all';
     if (status) status.value = 'all';
+    if (minPrice) minPrice.value = '';
+    if (maxPrice) maxPrice.value = '';
     await load();
 }
 
@@ -214,9 +226,10 @@ function updateUserUI() {
     const navMenu = document.getElementById('nav-menu');
     
     if (user && navMenu) {
-        let extraTools = user.role === 'admin' 
+        const role = (user.role || 'customer').toLowerCase();
+        let extraTools = role === 'admin'
             ? `<a href="admin.html" style="color: #f1c40f;">⚙️ Quản trị</a>`
-            : `<a href="#" onclick="showUploadModal()" style="color: #2ecc71;">+ Đăng tin</a>`;
+            : (role === 'owner' ? `<a href="#" onclick="showUploadModal()" style="color: #2ecc71;">+ Đăng tin</a>` : '');
 
         navMenu.innerHTML = `
             <a href="index.html">Trang chủ</a>
@@ -245,10 +258,12 @@ async function submitVehicle() {
 
     let imageUrl = document.getElementById('up-image-url').value.trim();
     const fileInput = document.getElementById('up-image-file');
+    const user = JSON.parse(localStorage.getItem('user_logged'));
 
     if(!name || !price) return alert("Vui lòng nhập đủ Tên và Giá!");
     if(isNaN(price) || price <= 0) return alert("Vui lòng nhập giá hợp lệ!");
     if(!imageUrl && fileInput.files.length === 0) return alert("Vui lòng chọn ảnh hoặc dán link ảnh sản phẩm.");
+    if (!user || (user.role || 'customer') !== 'owner') return alert('Chỉ tài khoản chủ xe mới được đăng tin.');
 
     if (fileInput.files.length > 0) {
         const formData = new FormData();
@@ -270,7 +285,8 @@ async function submitVehicle() {
     const vehicleData = {
         name, price, type, image_url: imageUrl,
         owner_name: owner, odo: odo, brand: brand, description: desc,
-        status: 'available', is_approved: 0
+        status: 'available', is_approved: 0,
+        submitted_by_role: user.role || 'customer'
     };
 
     try {

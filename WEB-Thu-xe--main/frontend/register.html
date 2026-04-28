@@ -11,6 +11,10 @@
         <input id="reg-name" placeholder="Họ và tên">
         <input id="reg-cccd" placeholder="Số CCCD/Passport">
         <input id="reg-address" placeholder="Địa chỉ thường trú">
+        <select id="reg-role" style="width:100%; padding:10px; margin:10px 0;">
+            <option value="customer">Khách hàng</option>
+            <option value="owner">Chủ xe</option>
+        </select>
         <input id="reg-user" placeholder="Tên đăng nhập">
         <input id="reg-pass" type="password" placeholder="Mật khẩu">
         <button onclick="signup()">Đăng ký</button>
@@ -24,6 +28,7 @@
         const fullname = document.getElementById('reg-name').value.trim();
         const cccd = document.getElementById('reg-cccd').value.trim();
         const address = document.getElementById('reg-address').value.trim();
+        const role = document.getElementById('reg-role').value;
         const username = document.getElementById('reg-user').value.trim();
         const password = document.getElementById('reg-pass').value.trim();
 
@@ -45,7 +50,7 @@
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 // Truyền cccd và address vào body
-                body: JSON.stringify({fullname, username, password, cccd, address}) 
+                body: JSON.stringify({fullname, username, password, cccd, address, role})
             });
 
             if(res.ok) {

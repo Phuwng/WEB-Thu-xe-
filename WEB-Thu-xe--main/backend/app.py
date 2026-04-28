@@ -2,7 +2,8 @@ from flask import Flask, request, jsonify
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask import send_from_directory
-import sqlite3, os, time, logging
+import sqlite3, os, time, logging, re
+from datetime import datetime, timedelta
 from flask_cors import CORS
 from dotenv import load_dotenv
 from functools import wraps
@@ -52,6 +53,77 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
+def sanitize_text(value, default=''):
+    if value is None:
+        return default
+    return re.sub(r'<[^>]*>', '', str(value)).strip()
+
+def parse_int(value, default=0):
+    try:
+        if value is None or value == '':
+            return default
+        return int(float(str(value).replace(',', '').replace('đ', '').strip()))
+    except Exception:
+        return default
+
+def normalize_role(role):
+     role = sanitize_text(role, 'customer').lower()
+     if role == 'user':
+         return 'customer'
+     if role not in {'customer', 'owner', 'admin'}:
+         return 'customer'
+     return role
+
+def calculate_rental_dates(days):
+    """Tính toán ngày bắt đầu và kết thúc cho đơn thuê"""
+    start_date = datetime.now()
+    end_date = start_date + timedelta(days=days)
+    return start_date.isoformat(), end_date.isoformat()
+
+def check_booking_conflict(conn, vehicle_id, start_date, end_date, exclude_order_id=None):
+    """
+    Kiểm tra xung đột đặt xe (Conflict handling)
+    Trả về True nếu có xung đột thời gian
+    """
+    # Query để tìm các đơn hàng đã thanh toán với xe này
+    if exclude_order_id:
+        query = """SELECT id FROM orders 
+                   WHERE vehicle_id = ? 
+                   AND payment_status = 'paid' 
+                   AND status != 'completed'
+                   AND id != ?
+                   AND start_date IS NOT NULL 
+                   AND end_date IS NOT NULL"""
+        conflicts = conn.execute(query, (vehicle_id, exclude_order_id)).fetchall()
+    else:
+        query = """SELECT id FROM orders 
+                   WHERE vehicle_id = ? 
+                   AND payment_status = 'paid' 
+                   AND status != 'completed'
+                   AND start_date IS NOT NULL 
+                   AND end_date IS NOT NULL"""
+        conflicts = conn.execute(query, (vehicle_id,)).fetchall()
+    
+    # Kiểm tra xem khoảng thời gian mới có trùng với bất kỳ đơn nào không
+    for conflict_order in conflicts:
+        order = conn.execute(
+            "SELECT start_date, end_date FROM orders WHERE id = ?", 
+            (conflict_order['id'],)
+        ).fetchone()
+        
+        if order:
+            existing_start = datetime.fromisoformat(order['start_date'])
+            existing_end = datetime.fromisoformat(order['end_date'])
+            new_start = datetime.fromisoformat(start_date)
+            new_end = datetime.fromisoformat(end_date)
+            
+            # Kiểm tra overlapping: 
+            # new_start < existing_end AND new_end > existing_start
+            if new_start < existing_end and new_end > existing_start:
+                return True
+    
+    return False
+
 def init_db():
     conn = get_db_connection()
 
@@ -94,6 +166,8 @@ def init_db():
         days INTEGER DEFAULT 1,
         total_price INTEGER DEFAULT 0,
         rent_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+        start_date DATETIME,
+        end_date DATETIME,
         status TEXT DEFAULT 'pending',
         payment_status TEXT DEFAULT 'unpaid',
         return_days INTEGER,
@@ -129,6 +203,8 @@ def init_db():
     ensure_column('orders', 'payment_status', "payment_status TEXT DEFAULT 'unpaid'")
     ensure_column('orders', 'return_days', 'return_days INTEGER')
     ensure_column('orders', 'refund_amount', 'refund_amount INTEGER DEFAULT 0')
+    ensure_column('orders', 'start_date', 'start_date DATETIME')
+    ensure_column('orders', 'end_date', 'end_date DATETIME')
 
     ensure_column('appointments', 'total_price', 'total_price INTEGER')
 
@@ -163,6 +239,9 @@ def get_cars():
     brand = request.args.get('brand', '').strip().lower()
     vtype = request.args.get('type', '').strip().lower()
     status = request.args.get('status', '').strip().lower()
+    min_price = request.args.get('min_price', '').strip()
+    max_price = request.args.get('max_price', '').strip()
+    price_expr = "CAST(REPLACE(REPLACE(REPLACE(COALESCE(price, '0'), ',', ''), 'đ', ''), ' ', '') AS INTEGER)"
 
     if search:
         like = f"%{search}%"
@@ -185,10 +264,58 @@ def get_cars():
         query += " AND LOWER(status)=?"
         params.append(status)
 
+    if min_price:
+        query += f" AND {price_expr} >= ?"
+        params.append(parse_int(min_price, 0))
+
+    if max_price:
+        query += f" AND {price_expr} <= ?"
+        params.append(parse_int(max_price, 0))
+
     query += " ORDER BY id DESC"
     rows = conn.execute(query, params).fetchall()
     conn.close()
     return jsonify([dict(row) for row in rows])
+
+@app.route('/cars', methods=['POST'])
+def create_car():
+    data = request.json or {}
+    submitter_role = normalize_role(data.get('submitted_by_role', 'customer'))
+    name = sanitize_text(data.get('name'))
+    price = parse_int(data.get('price'), 0)
+    status = sanitize_text(data.get('status'), 'available').lower() or 'available'
+    vtype = sanitize_text(data.get('type')).lower()
+    image_url = sanitize_text(data.get('image_url'))
+    owner_name = sanitize_text(data.get('owner_name'))
+    odo = parse_int(data.get('odo'), 0)
+    brand = sanitize_text(data.get('brand'))
+    description = sanitize_text(data.get('description'))
+    status_reason = sanitize_text(data.get('status_reason'))
+    is_approved = parse_int(data.get('is_approved'), 0)
+
+    if submitter_role not in {'owner', 'admin'}:
+        return jsonify({"message": "Chỉ chủ xe hoặc quản trị viên mới được đăng tin."}), 403
+    if not name or price <= 0 or not vtype:
+        return jsonify({"message": "Thiếu thông tin bắt buộc của xe."}), 400
+    if vtype not in {'car', 'motorbike', 'electric'}:
+        return jsonify({"message": "Loại xe không hợp lệ."}), 400
+    if status not in {'available', 'unavailable'}:
+        status = 'available'
+
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            '''INSERT INTO vehicles (name, price, status, type, image_url, is_approved, owner_name, odo, brand, description, status_reason)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+            (name, price, status, vtype, image_url, is_approved, owner_name, odo, brand, description, status_reason)
+        )
+        conn.commit()
+        return jsonify({"message": "Đã gửi tin! Chờ Admin phê duyệt."}), 201
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"message": f"Lỗi tạo xe: {str(e)}"}), 500
+    finally:
+        conn.close()
 
 @app.route('/cars/<int:id>', methods=['PUT'])
 def update_car(id):
@@ -207,49 +334,34 @@ def update_car(id):
         if name is None or name == '':
             name = old_data['name']
         else:
-            name = str(name).strip()
-        
+            name = sanitize_text(name)
+
         price = data.get('price')
         if price is None or price == '':
-            price = old_data['price']
+            price = parse_int(old_data['price'], 0)
         else:
-            try:
-                price = float(price)
-                if price <= 0:
-                    raise ValueError("Giá phải lớn hơn 0")
-            except:
-                price = old_data['price']
-        
-        status = data.get('status')
-        if status is None or status == '':
-            status = old_data['status']
-        else:
-            status = str(status).strip()
-        
+            price = parse_int(price, parse_int(old_data['price'], 0))
+            if price <= 0:
+                price = parse_int(old_data['price'], 0)
+
+        status = sanitize_text(data.get('status') or old_data['status'], old_data['status']).lower()
+
         vtype = data.get('type')
         if vtype is None or vtype == '':
             vtype = old_data['type']
         else:
             vtype = str(vtype).strip()
         
-        image_url = data.get('image_url')
-        if image_url is None or image_url == '':
-            image_url = old_data['image_url'] or ''
-        else:
-            image_url = str(image_url).strip()
-        
+        image_url = sanitize_text(data.get('image_url') or old_data['image_url'] or '')
+
         is_approved = data.get('is_approved')
         if is_approved is None:
             is_approved = old_data['is_approved']
         else:
             is_approved = int(is_approved)
         
-        owner_name = data.get('owner_name')
-        if owner_name is None or owner_name == '':
-            owner_name = old_data['owner_name'] or ''
-        else:
-            owner_name = str(owner_name).strip()
-        
+        owner_name = sanitize_text(data.get('owner_name') or old_data['owner_name'] or '')
+
         odo = data.get('odo')
         if odo is None or odo == '':
             odo = old_data['odo'] or 0
@@ -263,20 +375,20 @@ def update_car(id):
         if brand is None or brand == '':
             brand = old_data['brand'] or ''
         else:
-            brand = str(brand).strip()
-        
+            brand = sanitize_text(brand)
+
         description = data.get('description')
         if description is None or description == '':
             description = old_data['description'] or ''
         else:
-            description = str(description).strip()
-        
+            description = sanitize_text(description)
+
         status_reason = data.get('status_reason')
         if status_reason is None or status_reason == '':
             status_reason = old_data['status_reason'] or ''
         else:
-            status_reason = str(status_reason).strip()
-        
+            status_reason = sanitize_text(status_reason)
+
         # Update database
         conn.execute('''UPDATE vehicles SET name=?, price=?, status=?, type=?, image_url=?, is_approved=?, 
                         owner_name=?, odo=?, brand=?, description=?, status_reason=? WHERE id=?''',
@@ -361,9 +473,29 @@ def update_vehicle_status(id):
 # Cấu hình thư mục lưu ảnh
 # Cấu hình thư mục lưu ảnh (nếu cần config thêm)
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+ALLOWED_MIMETYPES = {'image/png', 'image/jpeg', 'image/gif'}
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def validate_image_magic_bytes(file_stream):
+    """Kiểm tra magic bytes của file ảnh để xác nhận loại file thực tế"""
+    magic_bytes = {
+        b'\xFF\xD8\xFF': 'jpg',      # JPEG
+        b'\x89PNG': 'png',            # PNG
+        b'GIF8': 'gif'                # GIF
+    }
+    
+    # Đọc 4 bytes đầu tiên
+    file_stream.seek(0)
+    header = file_stream.read(4)
+    file_stream.seek(0)
+    
+    for magic, image_type in magic_bytes.items():
+        if header.startswith(magic):
+            return image_type
+    
+    return None
 
 # API để tải file lên
 @app.route('/upload', methods=['POST'])
@@ -372,28 +504,35 @@ def upload_file():
         if 'file' not in request.files:
             return jsonify({"message": "Không có file trong yêu cầu."}), 400
         file = request.files['file']
-        if file.filename == '':
+        filename = file.filename or ''
+        if filename == '':
             return jsonify({"message": "Chưa chọn file."}), 400
-        if not allowed_file(file.filename):
+        if not allowed_file(filename):
             return jsonify({"message": "Định dạng tệp không hợp lệ. Chỉ chấp nhận PNG, JPG, JPEG, GIF."}), 400
         
+        # Kiểm tra magic bytes để xác nhận loại file thực tế (Lọc dữ liệu)
+        verified_type = validate_image_magic_bytes(file.stream)
+        if not verified_type:
+            return jsonify({"message": "File không phải là ảnh hợp lệ. Vui lòng tải lên file ảnh thực."}), 400
+        
         # Tạo thư mục uploads nếu chưa tồn tại
-        upload_dir = os.path.join(app.static_folder, 'uploads')
+        upload_root = str(app.static_folder or static_folder)
+        upload_dir = os.path.join(upload_root, 'uploads')
         if not os.path.exists(upload_dir):
             os.makedirs(upload_dir, exist_ok=True)
         
-        filename = secure_filename(file.filename)
+        filename = secure_filename(filename)
         unique_filename = f"{int(time.time())}_{filename}"
         save_path = os.path.join(upload_dir, unique_filename)
         file.save(save_path)
         
-        print(f"File uploaded successfully: {save_path}")
-        
+        logger.info(f"File uploaded successfully: {save_path}")
+
         # Trả về đường dẫn để lưu vào database
         image_url = f"http://127.0.0.1:5000/static/uploads/{unique_filename}"
         return jsonify({"url": image_url, "message": "Tải lên thành công."}), 200
     except Exception as e:
-        print(f"Lỗi upload: {e}")
+        logger.error(f"Lỗi upload: {e}")
         return jsonify({"message": f"Lỗi máy chủ: {str(e)}"}), 500
 
 
@@ -403,17 +542,18 @@ def upload_file():
 def register():
     try:
         data = request.json or {}
-        fullname = data.get('fullname', '').strip()
-        username = data.get('username', '').strip()
-        password = data.get('password', '').strip()
+        fullname = sanitize_text(data.get('fullname'))
+        username = sanitize_text(data.get('username'))
+        password = sanitize_text(data.get('password'))
+        role = normalize_role(data.get('role', 'customer'))
         if not fullname or not username or not password:
             return jsonify({"message": "Vui lòng điền đầy đủ họ tên, tên đăng nhập và mật khẩu."}), 400
 
         hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
         conn = get_db_connection()
         try:
-            conn.execute("INSERT INTO users (fullname, username, password, role, cccd, address) VALUES (?, ?, ?, 'user', ?, ?)",
-                         (fullname, username, hashed_password, data.get('cccd', '').strip(), data.get('address', '').strip()))
+            conn.execute("INSERT INTO users (fullname, username, password, role, cccd, address) VALUES (?, ?, ?, ?, ?, ?)",
+                         (fullname, username, hashed_password, role, sanitize_text(data.get('cccd')), sanitize_text(data.get('address'))))
             conn.commit()
             logger.info(f"User {username} registered successfully.")
             return jsonify({"message": "Success"}), 201
@@ -429,8 +569,8 @@ def register():
 def login_user():
     try:
         data = request.json
-        username = data.get('username', '').strip()
-        password = data.get('password', '').strip()
+        username = sanitize_text(data.get('username'))
+        password = data.get('password', '')
         if not username or not password:
             return jsonify({"status": "fail", "message": "Vui lòng nhập tên đăng nhập và mật khẩu"}), 400
 
@@ -440,6 +580,7 @@ def login_user():
         if user and check_password_hash(user['password'], password):
             user_dict = dict(user)
             del user_dict['password']  # Không trả mật khẩu
+            user_dict['role'] = normalize_role(user_dict.get('role'))
             logger.info(f"User {username} logged in successfully.")
             return jsonify({"status": "success", "user": user_dict})
         logger.warning(f"Failed login attempt for username: {username}")
@@ -451,9 +592,14 @@ def login_user():
 @app.route('/users', methods=['GET'])
 def get_users():
     conn = get_db_connection()
-    users = conn.execute("SELECT id, fullname, username, role, cccd, address FROM users WHERE role = 'user'").fetchall()
+    users = conn.execute("SELECT id, fullname, username, role, cccd, address FROM users WHERE COALESCE(role, 'customer') != 'admin'").fetchall()
     conn.close()
-    return jsonify([dict(user) for user in users])
+    normalized = []
+    for user in users:
+        row = dict(user)
+        row['role'] = normalize_role(row.get('role'))
+        normalized.append(row)
+    return jsonify(normalized)
 
 @app.route('/users/<int:id>', methods=['GET'])
 def get_user(id):
@@ -633,16 +779,24 @@ def book_car():
         if existing_appointment:
             return jsonify({"message": "Bạn đã đặt lịch hẹn cho xe này. Vui lòng kiểm tra giỏ hàng."}), 400
 
-        conn.execute('''INSERT INTO orders (user_id, vehicle_id, days, total_price, payment_status) 
-                        VALUES (?, ?, ?, ?, 'pending')''',
-                     (user_id, vehicle_id, days, total_price))
+        # Tính toán ngày bắt đầu và kết thúc (Conflict handling)
+        start_date, end_date = calculate_rental_dates(days)
         
+        # Kiểm tra xung đột thời gian với các đơn đã thanh toán khác
+        if check_booking_conflict(conn, vehicle_id, start_date, end_date):
+            return jsonify({"message": "Khoảng thời gian này xe đã được đặt bởi người khác. Vui lòng chọn khoảng thời gian khác."}), 400
+
+        conn.execute('''INSERT INTO orders (user_id, vehicle_id, days, total_price, payment_status, start_date, end_date) 
+                        VALUES (?, ?, ?, ?, 'pending', ?, ?)''',
+                     (user_id, vehicle_id, days, total_price, start_date, end_date))
+
         conn.execute("UPDATE vehicles SET status='unavailable' WHERE id=?", (vehicle_id,))
         
         conn.commit()
         return jsonify({"message": "Đặt thuê ngay thành công! Chờ xác nhận thanh toán."}), 201
     except Exception as e:
         conn.rollback()
+        logger.error(f"Error in book_car: {str(e)}")
         return jsonify({"message": f"Lỗi đặt xe: {str(e)}"}), 500
     finally:
         conn.close()
@@ -756,8 +910,10 @@ def return_vehicle(id):
         if order['payment_status'] != 'paid':
             return jsonify({"message": "Đơn hàng chưa được thanh toán. Không thể trả xe."}), 400
         
-        vehicle_id = order['vehicle_id']
-        
+        vehicle_id = parse_int(order['vehicle_id'], 0)
+        if vehicle_id <= 0:
+            return jsonify({"message": "Thông tin xe không hợp lệ."}), 400
+
         # Kiểm tra xe có tồn tại không
         vehicle = conn.execute("SELECT status FROM vehicles WHERE id=?", (vehicle_id,)).fetchone()
         if not vehicle:
@@ -905,8 +1061,8 @@ def admin_stats():
     active_revenue = conn.execute("SELECT SUM(total_price - refund_amount) FROM orders WHERE payment_status='paid' AND status!='completed'").fetchone()[0] or 0
     total_orders = conn.execute("SELECT COUNT(*) FROM orders").fetchone()[0] or 0
     total_vehicles = conn.execute("SELECT COUNT(*) FROM vehicles WHERE is_approved=1").fetchone()[0] or 0
-    total_users = conn.execute("SELECT COUNT(*) FROM users WHERE role='user'").fetchone()[0] or 0
-    
+    total_users = conn.execute("SELECT COUNT(*) FROM users WHERE COALESCE(role, 'customer') != 'admin'").fetchone()[0] or 0
+
     query = '''SELECT u.fullname, v.name as vehicle_name, o.rent_date as created_at, o.days, o.total_price, o.refund_amount 
                FROM orders o 
                JOIN users u ON o.user_id = u.id 

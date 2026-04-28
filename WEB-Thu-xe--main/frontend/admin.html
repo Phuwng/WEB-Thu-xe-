@@ -53,6 +53,7 @@
                 </div>
             </div>
             <p id="revenue-breakdown" style="margin: 8px 0 0 0; color:#555; font-size:13px;"></p>
+            <canvas id="revenue-chart" width="900" height="220" style="width:100%; max-width:900px; display:block; margin-top:15px; background:#fafafa; border:1px solid #eee; border-radius:8px;"></canvas>
             <h4 style="margin-top:20px; color:#2c3e50;">Lịch sử giao dịch gần đây</h4>
             <div class="table-responsive">
                 <table class="admin-table">
@@ -145,7 +146,7 @@
             <h3><i class="fas fa-users"></i> Danh sách thành viên</h3>
             <div class="table-responsive">
                 <table class="admin-table">
-                    <thead><tr><th>ID</th><th>Họ tên</th><th>Tên đăng nhập</th><th>CCCD</th><th>Hành động</th></tr></thead>
+                    <thead><tr><th>ID</th><th>Họ tên</th><th>Tên đăng nhập</th><th>Vai trò</th><th>CCCD</th><th>Hành động</th></tr></thead>
                     <tbody id="user-list"></tbody>
                 </table>
             </div>
@@ -243,12 +244,28 @@
                 const users = await uRes.json();
                 document.getElementById('user-list').innerHTML = users.map(u => `
                     <tr>
-                        <td>#${u.id}</td><td>${u.fullname}</td><td>${u.username}</td><td>${u.cccd || 'Chưa cập nhật'}</td>
+                        <td>#${u.id}</td><td>${u.fullname}</td><td>${u.username}</td><td>${u.role || 'customer'}</td><td>${u.cccd || 'Chưa cập nhật'}</td>
                         <td><button onclick="removeUser(${u.id})" class="btn btn-danger" style="padding: 5px 10px; font-size:12px;"><i class="fas fa-user-times"></i> Xóa</button></td>
                     </tr>
-                `).join('') || '<tr><td colspan="5" style="text-align:center;">Chưa có thành viên nào</td></tr>';
+                `).join('') || '<tr><td colspan="6" style="text-align:center;">Chưa có thành viên nào</td></tr>';
 
-                // 5. Tải danh sách xe đang được thuê
+                // 3. Tải danh sách đơn hàng
+                const orderRes = await fetch('http://127.0.0.1:5000/admin/orders');
+                const orders = await orderRes.json();
+                document.getElementById('orders-list').innerHTML = orders.map(o => `
+                    <tr>
+                        <td>#${o.id}</td>
+                        <td>${o.user_name}</td>
+                        <td>${o.vehicle_name}</td>
+                        <td>${new Date(o.rent_date).toLocaleDateString()}</td>
+                        <td>${o.days} ngày</td>
+                        <td>${Number(o.total_price).toLocaleString()}đ</td>
+                        <td>${o.payment_status === 'paid' ? '<span class="badge badge-success">Đã thanh toán</span>' : '<span class="badge badge-warning">Chờ thanh toán</span>'}</td>
+                        <td>${o.payment_status !== 'paid' ? `<button onclick="confirmPayment(${o.id})" class="btn btn-success" style="padding: 5px 10px; font-size:12px;"><i class="fas fa-credit-card"></i> Xác nhận</button>` : '<span class="badge badge-success">Đã xong</span>'}</td>
+                    </tr>
+                `).join('') || '<tr><td colspan="8" style="text-align:center;">Chưa có đơn hàng nào</td></tr>';
+
+                // 4. Tải danh sách xe đang được thuê
                 const rentedRes = await fetch('http://127.0.0.1:5000/admin/rented-vehicles');
                 const rentedVehicles = await rentedRes.json();
                 document.getElementById('rented-vehicles-list').innerHTML = rentedVehicles.map(v => `
@@ -262,7 +279,7 @@
                     </tr>
                 `).join('') || '<tr><td colspan="6" style="text-align:center;">Không có xe nào đang được thuê</td></tr>';
 
-                // 6. Tải danh sách đặt lịch hẹn
+                // 5. Tải danh sách đặt lịch hẹn
                 const appRes = await fetch('http://127.0.0.1:5000/admin/appointments');
                 const appointments = await appRes.json();
                 document.getElementById('appointments-list').innerHTML = appointments.map(a => `
@@ -448,6 +465,24 @@
             }
         }
 
+        async function removeUser(id) {
+            if(confirm("Xóa thành viên này khỏi hệ thống?")) {
+                try {
+                    const res = await fetch(`http://127.0.0.1:5000/users/${id}`, { method: 'DELETE' });
+                    const data = await res.json();
+                    if (res.ok) {
+                        alert(data.message || "Xóa thành viên thành công!");
+                        loadAll();
+                    } else {
+                        alert(data.message || "Không thể xóa thành viên.");
+                    }
+                } catch (error) {
+                    console.error('Delete user error:', error);
+                    alert("Lỗi khi xóa thành viên: " + error.message);
+                }
+            }
+        }
+
         async function confirmPayment(id) {
             if(confirm("Xác nhận đã nhận thanh toán cho đơn hàng này?")) {
                 try {
@@ -488,7 +523,56 @@
                         <td>${c.refund_amount ? Number(c.refund_amount).toLocaleString() + 'đ' : '-'}</td>
                     </tr>
                 `).join('') || '<tr><td colspan="6" style="text-align:center;">Chưa có giao dịch nào</td></tr>';
+
+                renderRevenueChart(data.renting_customers || []);
             } catch(e) { console.error('Error loading stats:', e); }
+        }
+
+        function renderRevenueChart(items) {
+            const canvas = document.getElementById('revenue-chart');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const w = canvas.width;
+            const h = canvas.height;
+            ctx.clearRect(0, 0, w, h);
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(0, 0, w, h);
+
+            const data = (items || []).slice(0, 7).map((item, idx) => ({
+                label: item.vehicle_name || `#${idx + 1}`,
+                value: Number(item.total_price || 0) - Number(item.refund_amount || 0)
+            })).reverse();
+
+            if (!data.length) {
+                ctx.fillStyle = '#666';
+                ctx.font = '16px Arial';
+                ctx.fillText('Chưa có dữ liệu doanh thu', 20, 40);
+                return;
+            }
+
+            const max = Math.max(...data.map(d => d.value), 1);
+            const barWidth = Math.floor((w - 80) / data.length) - 10;
+            const baseY = h - 40;
+
+            ctx.fillStyle = '#2c3e50';
+            ctx.font = 'bold 16px Arial';
+            ctx.fillText('Biểu đồ doanh thu gần đây', 20, 24);
+
+            data.forEach((d, i) => {
+                const x = 40 + i * (barWidth + 10);
+                const barHeight = Math.max(10, Math.round((d.value / max) * 140));
+                const y = baseY - barHeight;
+                ctx.fillStyle = '#4facfe';
+                ctx.fillRect(x, y, barWidth, barHeight);
+                ctx.fillStyle = '#2c3e50';
+                ctx.font = '12px Arial';
+                ctx.fillText(Number(d.value).toLocaleString() + 'đ', x - 2, y - 6);
+                ctx.save();
+                ctx.translate(x + 2, baseY + 10);
+                ctx.rotate(-Math.PI / 6);
+                ctx.fillText(String(d.label).slice(0, 12), 0, 0);
+                ctx.restore();
+            });
         }
 
         async function convertAppointmentToOrder(id) {

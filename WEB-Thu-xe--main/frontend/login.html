@@ -40,7 +40,7 @@
                 localStorage.setItem('user_role', data.user.role);
                 
                 // Phân quyền điều hướng
-                if (data.user.role === 'admin') {
+                if ((data.user.role || '').toLowerCase() === 'admin') {
                     location.href = 'admin.html';
                 } else {
                     location.href = 'index.html';
